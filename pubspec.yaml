@@ -1,6 +1,7 @@
 name: l10n_scanner
-description: JSON-first localization scanner for hardcoded texts and unused keys.
+description: Analyze Flutter l10n usage to find hardcoded text, untranslated strings, and unused localization keys.
 version: 0.1.0
+resolution: workspace
 homepage: https://github.com/iamnabink/flutter_l10n_scanner
 repository: https://github.com/iamnabink/flutter_l10n_scanner
 issue_tracker: https://github.com/iamnabink/flutter_l10n_scanner/issues
