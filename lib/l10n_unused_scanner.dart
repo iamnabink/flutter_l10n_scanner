@@ -3,6 +3,46 @@ import 'dart:developer';
 import 'dart:io';
 import 'package:yaml/yaml.dart';
 
+/// Finds localization keys used in Dart source content.
+///
+/// Supports single-line and multi-line usage patterns.
+Set<String> findUsedKeysInContent(String content, Set<String> allKeys) {
+  if (allKeys.isEmpty) {
+    return <String>{};
+  }
+
+  final String keysPattern = allKeys.map(RegExp.escape).join('|');
+  if (!content.contains(RegExp(keysPattern))) {
+    return <String>{};
+  }
+
+  final RegExp regex = RegExp(
+    // ignore: prefer_interpolation_to_compose_strings
+    r'(?:'
+            r'(?:[a-zA-Z0-9_]+(?:\?)?\s*\.\s*)+'
+            r'|'
+            r'[a-zA-Z0-9_]+\.of\(\s*(?:context|Get\.context\!?|AppNavigation\.context|this\.context|BuildContext\s+\w+)[\s,]*\)\!?\s*\.\s*'
+            r'|'
+            r'[A-Za-z_]\w*\.[A-Za-z_]\w*\(\s*\)\s*\.\s*'
+            r')'
+            r'\s*'
+            r'(' +
+        keysPattern +
+        r')(?:\b|\s*\()',
+    multiLine: true,
+    dotAll: true,
+  );
+
+  final Set<String> usedKeys = <String>{};
+  for (final Match match in regex.allMatches(content)) {
+    final String? key = match.group(1);
+    if (key != null) {
+      usedKeys.add(key);
+    }
+  }
+  return usedKeys;
+}
+
 /// Finds unused localization keys and writes them into a JSON file.
 ///
 /// Returns the unused key set.
@@ -74,6 +114,21 @@ void removeUnusedKeysFromJson({
   for (final File file in localizationFiles) {
     final Map<String, dynamic> data =
         json.decode(file.readAsStringSync()) as Map<String, dynamic>;
+    final Set<String> nonMetaKeys = data.keys
+        .where((key) => useEasyLocalization || !key.startsWith('@'))
+        .toSet();
+    final Set<String> removableInFile = nonMetaKeys
+        .where(keysToRemove.contains)
+        .toSet();
+
+    if (nonMetaKeys.isNotEmpty && removableInFile.length == nonMetaKeys.length) {
+      log(
+        '⚠️ Skipping ${file.path}: removal list would delete all keys. '
+        'Please review your unused-key JSON first.',
+      );
+      continue;
+    }
+
     bool updated = false;
 
     for (final String key in keysToRemove) {
@@ -149,57 +204,31 @@ _UnusedScanResult _scanUnusedKeys({
   }
 
   final Set<String> usedKeys = <String>{};
-  final Directory libDir = Directory('lib');
-  final String keysPattern = allKeys.map(RegExp.escape).join('|');
+  final List<String> dartScanDirs = useEasyLocalization
+      ? <String>['lib']
+      : _getDartScanDirs();
 
-  final RegExp regex = useEasyLocalization
-      ? RegExp(
-          'LocaleKeys\\.($keysPattern)(?:\\.tr\\([^)]*\\)|\\.plural\\([^)]*\\))?|'
-          '(?:context|this)\\.tr\\([\'"]($keysPattern)[\'"]\\)|'
-          'tr\\([\'"]($keysPattern)[\'"]\\)|'
-          '[\'"]($keysPattern)[\'"]\\.tr\\([^)]*\\)',
-          multiLine: true,
-          dotAll: true,
-        )
-      : RegExp(
-          r'(?:'
-                  r'(?:[a-zA-Z0-9_]+\s*\.)+'
-                  r'|'
-                  r'[a-zA-Z0-9_]+\.of\(\s*(?:context|AppNavigation\.context|this\.context|BuildContext\s+\w+),?\s*\)\!?\s*\.\s*'
-                  r'|'
-                  r'[a-zA-Z0-9_]+\.\w+\(\s*\)\s*\.\s*'
-                  r')'
-                  r'($keysPattern)\b',
-          multiLine: true,
-          dotAll: true,
-        );
-
-  for (final FileSystemEntity entity in libDir.listSync(recursive: true)) {
-    if (entity is! File || !entity.path.endsWith('.dart')) {
-      continue;
-    }
-    if (source.excludedFiles.contains(entity.path) ||
-        _isIgnoredPath(entity.path, ignoreFilePatterns)) {
+  for (final String dirPath in dartScanDirs) {
+    final Directory dir = Directory(dirPath);
+    if (!dir.existsSync()) {
+      log('⚠️ Warning: dart scan dir `$dirPath` does not exist, skipping.');
       continue;
     }
 
-    final String content = entity.readAsStringSync();
-    if (!content.contains(RegExp(keysPattern))) {
-      continue;
-    }
+    for (final FileSystemEntity entity in dir.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) {
+        continue;
+      }
+      if (source.excludedFiles.contains(entity.path) ||
+          _isIgnoredPath(entity.path, ignoreFilePatterns)) {
+        continue;
+      }
 
-    for (final Match match in regex.allMatches(content)) {
+      final String content = entity.readAsStringSync();
       if (useEasyLocalization) {
-        final String? key =
-            match.group(1) ?? match.group(2) ?? match.group(3) ?? match.group(4);
-        if (key != null && allKeys.contains(key)) {
-          usedKeys.add(key);
-        }
+        usedKeys.addAll(_findEasyLocalizationUsedKeys(content, allKeys));
       } else {
-        final String? key = match.group(1);
-        if (key != null) {
-          usedKeys.add(key);
-        }
+        usedKeys.addAll(findUsedKeysInContent(content, allKeys));
       }
     }
   }
@@ -266,6 +295,69 @@ bool _isIgnoredPath(String path, List<String> patterns) {
     }
   }
   return false;
+}
+
+Set<String> _findEasyLocalizationUsedKeys(String content, Set<String> allKeys) {
+  if (allKeys.isEmpty) {
+    return <String>{};
+  }
+
+  final String keysPattern = allKeys.map(RegExp.escape).join('|');
+  if (!content.contains(RegExp(keysPattern))) {
+    return <String>{};
+  }
+
+  final RegExp regex = RegExp(
+    'LocaleKeys\\.($keysPattern)(?:\\.tr\\([^)]*\\)|\\.plural\\([^)]*\\))?|'
+    '(?:context|this)\\.tr\\([\'"]($keysPattern)[\'"]\\)|'
+    'tr\\([\'"]($keysPattern)[\'"]\\)|'
+    '[\'"]($keysPattern)[\'"]\\.tr\\([^)]*\\)',
+    multiLine: true,
+    dotAll: true,
+  );
+
+  final Set<String> usedKeys = <String>{};
+  for (final Match match in regex.allMatches(content)) {
+    final String? key =
+        match.group(1) ?? match.group(2) ?? match.group(3) ?? match.group(4);
+    if (key != null && allKeys.contains(key)) {
+      usedKeys.add(key);
+    }
+  }
+  return usedKeys;
+}
+
+/// Reads dart-scan-dirs from remove_unused_localizations.yaml.
+/// Returns ['lib'] if the file is missing, invalid, or the key is absent.
+List<String> _getDartScanDirs() {
+  const List<String> defaultDirs = <String>['lib'];
+  final File configFile = File('remove_unused_localizations.yaml');
+  if (!configFile.existsSync()) {
+    return defaultDirs;
+  }
+
+  try {
+    final String content = configFile.readAsStringSync();
+    final dynamic data = loadYaml(content);
+    if (data == null || data is! Map) {
+      return defaultDirs;
+    }
+
+    final dynamic dartScanDirs = data['dart-scan-dirs'];
+    if (dartScanDirs == null || dartScanDirs is! YamlList) {
+      return defaultDirs;
+    }
+
+    final List<String> dirs = dartScanDirs
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
+
+    return dirs.isEmpty ? defaultDirs : dirs;
+  } catch (_) {
+    return defaultDirs;
+  }
 }
 
 final class _UnusedScanResult {

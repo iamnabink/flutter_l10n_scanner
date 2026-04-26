@@ -38,17 +38,9 @@ void main(List<String> args) {
         ignoreFilePatterns: _listOption(options, 'ignore-files'),
       );
       return;
-    case 'apply-unused-json':
+    case 'remove-unused-json':
       removeUnusedKeysFromJson(
         inputJsonPath: options['input'] ?? 'unused_localization_keys.json',
-        useEasyLocalization: _asBool(options, 'use-easy-localization'),
-        easyLocalizationPath: options['easy-localization-path'],
-      );
-      return;
-    case 'clean-unused':
-      // Backward-compatible alias for existing users.
-      runLocalizationCleaner(
-        keepUnused: _asBool(options, 'keep-unused'),
         useEasyLocalization: _asBool(options, 'use-easy-localization'),
         easyLocalizationPath: options['easy-localization-path'],
       );
@@ -117,11 +109,10 @@ Usage:
   dart run l10n_scanner <command> [options]
 
 Commands:
-  scan-hardcoded       Detect hardcoded Text("...") and write JSON.
+  scan-hardcoded          Detect hardcoded Text("...") and write JSON.
   generate-arb-from-json  Generate ARB keys from hardcoded JSON report.
-  scan-unused          Write unused localization keys into JSON.
-  apply-unused-json    Remove keys from ARB/JSON using unused-key JSON.
-  clean-unused         Backward-compatible alias.
+  scan-unused             Write unused localization keys into JSON.
+  remove-unused-json      Remove keys from ARB/JSON using unused-key JSON.
 
 scan-hardcoded options:
   --lib-dir <path>           Directory to scan (default: lib)
@@ -144,7 +135,7 @@ scan-unused options:
   --easy-localization-path   Localization directory for easy_localization
   --ignore-files <patterns>  Comma-separated glob-like ignores
 
-apply-unused-json options:
+remove-unused-json options:
   --input <path>             Unused-key JSON input (default: unused_localization_keys.json)
   --use-easy-localization    Scan easy_localization usage patterns
   --easy-localization-path   Localization directory for easy_localization
