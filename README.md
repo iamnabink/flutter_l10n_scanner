@@ -67,7 +67,7 @@ dart run bin/l10n_scanner.dart --help
 - `scan-hardcoded`: scans Dart files for `Text("...")`, writes hardcoded text report JSON.
 - `generate-arb-from-json`: reads hardcoded report JSON and writes generated ARB keys.
 - `scan-unused`: scans code usage and writes unused localization keys into JSON.
-- `remove-unused-json`: removes only listed keys from localization files using JSON input.
+- `remove-unused-json`: removes only listed keys from localization files using JSON input, then automatically re-runs `scan-unused` to refresh the same JSON file.
 
 Main commands:
 
@@ -97,6 +97,8 @@ dart run l10n_scanner scan-hardcoded --ignore-files "lib/generated/*,lib/**/mock
 dart run l10n_scanner scan-unused --output unused_localization_keys.json
 dart run l10n_scanner remove-unused-json --input unused_localization_keys.json
 ```
+
+`remove-unused-json` automatically refreshes `unused_localization_keys.json` after removal.
 
 Optional scan directories config (`remove_unused_localizations.yaml`):
 

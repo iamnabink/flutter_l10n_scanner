@@ -39,10 +39,23 @@ void main(List<String> args) {
       );
       return;
     case 'remove-unused-json':
+      final String inputPath =
+          options['input'] ?? 'unused_localization_keys.json';
+      final bool useEasyLocalization = _asBool(options, 'use-easy-localization');
+      final String? easyLocalizationPath = options['easy-localization-path'];
+      final List<String> ignoreFilePatterns = _listOption(options, 'ignore-files');
+
       removeUnusedKeysFromJson(
-        inputJsonPath: options['input'] ?? 'unused_localization_keys.json',
-        useEasyLocalization: _asBool(options, 'use-easy-localization'),
-        easyLocalizationPath: options['easy-localization-path'],
+        inputJsonPath: inputPath,
+        useEasyLocalization: useEasyLocalization,
+        easyLocalizationPath: easyLocalizationPath,
+      );
+      // Refresh unused JSON after removal so the file reflects current state.
+      writeUnusedKeysJson(
+        useEasyLocalization: useEasyLocalization,
+        easyLocalizationPath: easyLocalizationPath,
+        outputJsonPath: inputPath,
+        ignoreFilePatterns: ignoreFilePatterns,
       );
       return;
     default:
@@ -139,5 +152,6 @@ remove-unused-json options:
   --input <path>             Unused-key JSON input (default: unused_localization_keys.json)
   --use-easy-localization    Scan easy_localization usage patterns
   --easy-localization-path   Localization directory for easy_localization
+  --ignore-files <patterns>  Comma-separated glob-like ignores for re-scan
 ''');
 }

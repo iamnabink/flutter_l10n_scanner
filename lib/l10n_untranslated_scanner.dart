@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer';
 import 'dart:io';
 
 /// Detects hardcoded `Text("...")` usage in Dart files and writes a report.
@@ -21,6 +20,7 @@ bool runHardcodedTextScanner({
   bool unsafeReplace = false,
   List<String> ignoreFilePatterns = const <String>[],
 }) {
+  _coolLog('🔍 Starting hardcoded text scan in `$libDirPath`...');
   final RegExp textLiteralPattern = RegExp(
     r'''Text\(\s*(["'])(.+?)\1\s*\)''',
   );
@@ -28,7 +28,7 @@ bool runHardcodedTextScanner({
   final Map<String, dynamic> result = <String, dynamic>{};
 
   if (!libDir.existsSync()) {
-    log('Error: `$libDirPath` directory not found.');
+    _coolLog('❌ Directory not found: `$libDirPath`');
     return false;
   }
 
@@ -76,7 +76,13 @@ bool runHardcodedTextScanner({
   reportFile.writeAsStringSync(
     const JsonEncoder.withIndent('  ').convert(result),
   );
-  log('✅ Report generated: ${reportFile.path}');
+  final int fileCount = result.length;
+  final int totalTexts = result.values
+      .whereType<Map<String, dynamic>>()
+      .map((entry) => (entry['texts'] as List<dynamic>? ?? <dynamic>[]).length)
+      .fold(0, (sum, count) => sum + count);
+  _coolLog('📝 Report generated: ${reportFile.path}');
+  _coolLog('📊 Found $totalTexts unique hardcoded texts across $fileCount files.');
 
   if (generateArb) {
     generateArbFromHardcodedJson(
@@ -87,7 +93,7 @@ bool runHardcodedTextScanner({
   }
 
   if (unsafeReplace) {
-    log(
+    _coolLog(
       '⚠️ Unsafe replacement is enabled. Review generated JSON/ARB before applying.',
     );
     final int changedFiles = _replaceTextLiterals(
@@ -95,15 +101,15 @@ bool runHardcodedTextScanner({
       textLiteralPattern: textLiteralPattern,
       ignoreFilePatterns: ignoreFilePatterns,
     );
-    log('✅ Replaced literals in $changedFiles Dart files');
+    _coolLog('🛠️ Replaced literals in $changedFiles Dart files.');
   }
 
   if (result.isNotEmpty && failOnFound) {
-    log('❌ Hardcoded texts found!');
+    _coolLog('❌ Hardcoded texts found!');
     exitCode = 1;
   }
 
-  log('✅ Done');
+  _coolLog('✅ Hardcoded scan complete.');
   return result.isNotEmpty;
 }
 
@@ -114,13 +120,13 @@ void generateArbFromHardcodedJson({
 }) {
   final File reportFile = File(hardcodedJsonPath);
   if (!reportFile.existsSync()) {
-    log('Error: Hardcoded JSON file not found at `${reportFile.path}`');
+    _coolLog('❌ Hardcoded JSON file not found at `${reportFile.path}`');
     return;
   }
 
   final String reportContent = reportFile.readAsStringSync().trim();
   if (reportContent.isEmpty) {
-    log('Error: Hardcoded JSON file is empty at `${reportFile.path}`');
+    _coolLog('❌ Hardcoded JSON file is empty at `${reportFile.path}`');
     return;
   }
 
@@ -130,6 +136,7 @@ void generateArbFromHardcodedJson({
     reportData,
     withMetadata: withMetadata,
   );
+  _coolLog('🧩 Generated ${arbEntries.length ~/ (withMetadata ? 2 : 1)} ARB keys from JSON.');
   _saveArbFile(arbFilePath, arbEntries);
 }
 
@@ -194,7 +201,7 @@ void _saveArbFile(String arbFilePath, Map<String, dynamic> newEntries) {
   arbFile.writeAsStringSync(
     const JsonEncoder.withIndent('  ').convert(current),
   );
-  log('✅ ARB updated: ${arbFile.path}');
+  _coolLog('💾 ARB updated: ${arbFile.path}');
 }
 
 int _replaceTextLiterals({
@@ -275,4 +282,8 @@ bool _isIgnoredPath(String path, List<String> patterns) {
     }
   }
   return false;
+}
+
+void _coolLog(String message) {
+  stdout.writeln(message);
 }

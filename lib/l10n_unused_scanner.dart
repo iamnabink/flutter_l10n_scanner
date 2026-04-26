@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer';
 import 'dart:io';
 import 'package:yaml/yaml.dart';
 
@@ -52,6 +51,7 @@ Set<String> writeUnusedKeysJson({
   String outputJsonPath = 'unused_localization_keys.json',
   List<String> ignoreFilePatterns = const <String>[],
 }) {
+  _coolLog('🧭 Scanning for unused localization keys...');
   final _UnusedScanResult scanResult = _scanUnusedKeys(
     useEasyLocalization: useEasyLocalization,
     easyLocalizationPath: easyLocalizationPath,
@@ -69,7 +69,8 @@ Set<String> writeUnusedKeysJson({
   outputFile.writeAsStringSync(
     const JsonEncoder.withIndent('  ').convert(payload),
   );
-  log('✅ Unused keys JSON written: ${outputFile.path}');
+  _coolLog('📝 Unused keys JSON written: ${outputFile.path}');
+  _coolLog('📦 Total unused keys: ${sortedKeys.length}');
   return scanResult.unusedKeys;
 }
 
@@ -81,7 +82,7 @@ void removeUnusedKeysFromJson({
 }) {
   final File jsonFile = File(inputJsonPath);
   if (!jsonFile.existsSync()) {
-    log('Error: Unused-key JSON not found at `${jsonFile.path}`');
+    _coolLog('❌ Unused-key JSON not found at `${jsonFile.path}`');
     return;
   }
 
@@ -94,9 +95,10 @@ void removeUnusedKeysFromJson({
       .toSet();
 
   if (keysToRemove.isEmpty) {
-    log('No keys to remove in `${jsonFile.path}`.');
+    _coolLog('ℹ️ No keys to remove in `${jsonFile.path}`.');
     return;
   }
+  _coolLog('🧹 Preparing to remove ${keysToRemove.length} keys...');
 
   final _LocalizationSource source = _resolveLocalizationSource(
     useEasyLocalization: useEasyLocalization,
@@ -104,7 +106,7 @@ void removeUnusedKeysFromJson({
   );
   final List<File> localizationFiles = source.localizationFiles;
   if (localizationFiles.isEmpty) {
-    log('No localization files found in ${source.localizationDir.path}');
+    _coolLog('❌ No localization files found in ${source.localizationDir.path}');
     return;
   }
 
@@ -122,7 +124,7 @@ void removeUnusedKeysFromJson({
         .toSet();
 
     if (nonMetaKeys.isNotEmpty && removableInFile.length == nonMetaKeys.length) {
-      log(
+      _coolLog(
         '⚠️ Skipping ${file.path}: removal list would delete all keys. '
         'Please review your unused-key JSON first.',
       );
@@ -151,7 +153,7 @@ void removeUnusedKeysFromJson({
     }
   }
 
-  log('✅ Removed $removedKeyCount keys across $modifiedFiles localization files.');
+  _coolLog('✅ Removed $removedKeyCount keys across $modifiedFiles localization files.');
 }
 
 /// Backward-compatible wrapper. Prefer [writeUnusedKeysJson] + [removeUnusedKeysFromJson].
@@ -211,7 +213,7 @@ _UnusedScanResult _scanUnusedKeys({
   for (final String dirPath in dartScanDirs) {
     final Directory dir = Directory(dirPath);
     if (!dir.existsSync()) {
-      log('⚠️ Warning: dart scan dir `$dirPath` does not exist, skipping.');
+      _coolLog('⚠️ Warning: dart scan dir `$dirPath` does not exist, skipping.');
       continue;
     }
 
@@ -358,6 +360,10 @@ List<String> _getDartScanDirs() {
   } catch (_) {
     return defaultDirs;
   }
+}
+
+void _coolLog(String message) {
+  stdout.writeln(message);
 }
 
 final class _UnusedScanResult {
