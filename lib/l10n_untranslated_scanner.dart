@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'src/dart_comment_sanitizer.dart';
 
 /// Detects hardcoded `Text("...")` usage in Dart files and writes a report.
 ///
@@ -21,9 +22,17 @@ bool runHardcodedTextScanner({
   List<String> ignoreFilePatterns = const <String>[],
 }) {
   _coolLog('🔍 Starting hardcoded text scan in `$libDirPath`...');
+
+  // Matches Text("...") or Text('...') with any trailing arguments.
   final RegExp textLiteralPattern = RegExp(
-    r'''Text\(\s*(["'])(.+?)\1\s*\)''',
+    r'''(?<!\w)Text\(\s*(["'])(.+?)\1''',
   );
+
+  // Matches common named string parameters that typically render visible text.
+  final RegExp namedParamPattern = RegExp(
+    r'''(?:hintText|labelText|title|label|hint|tooltip|semanticsLabel|message|helperText|counterText|prefixText|suffixText|errorText|placeholderText)\s*:\s*(["'])(.+?)\1''',
+  );
+
   final Directory libDir = Directory(libDirPath);
   final Map<String, dynamic> result = <String, dynamic>{};
 
@@ -40,30 +49,25 @@ bool runHardcodedTextScanner({
       continue;
     }
 
-    final List<String> lines = entity.readAsStringSync().split('\n');
+    final String sanitizedContent = stripDartComments(entity.readAsStringSync());
+    final List<String> lines = sanitizedContent.split('\n');
     final List<Map<String, dynamic>> texts = <Map<String, dynamic>>[];
     final Set<String> seenTexts = <String>{};
 
     for (int i = 0; i < lines.length; i++) {
       final String line = lines[i];
-      final Iterable<RegExpMatch> matches = textLiteralPattern.allMatches(line);
 
-      for (final RegExpMatch match in matches) {
-        final String? literal = match.group(2);
-        if (literal == null || literal.isEmpty) {
-          continue;
-        }
+      // Skip lines that reference l10n-translated values entirely.
+      if (line.contains('context.l10n.') || line.contains('.l10n.')) {
+        continue;
+      }
 
-        // Skip lines already using generated l10n keys or l10n interpolation.
-        if (line.contains('context.l10n.') || literal.contains('l10n.')) {
-          continue;
-        }
+      for (final RegExpMatch m in textLiteralPattern.allMatches(line)) {
+        _collectLiteral(m.group(2), i + 1, seenTexts, texts);
+      }
 
-        if (!seenTexts.add(literal)) {
-          continue;
-        }
-
-        texts.add(<String, dynamic>{'text': literal, 'line': i + 1});
+      for (final RegExpMatch m in namedParamPattern.allMatches(line)) {
+        _collectLiteral(m.group(2), i + 1, seenTexts, texts);
       }
     }
 
@@ -204,6 +208,30 @@ void _saveArbFile(String arbFilePath, Map<String, dynamic> newEntries) {
   _coolLog('💾 ARB updated: ${arbFile.path}');
 }
 
+/// Collects a matched string literal into [texts] if it passes all filters.
+///
+/// Filters out:
+/// - null / empty strings
+/// - strings containing l10n references
+/// - strings shorter than 2 characters
+/// - strings that are purely numeric or symbolic (no letters)
+/// - strings containing Dart interpolation (`$`) — these are partially dynamic
+/// - duplicates within the same file (tracked via [seen])
+void _collectLiteral(
+  String? literal,
+  int lineNumber,
+  Set<String> seen,
+  List<Map<String, dynamic>> texts,
+) {
+  if (literal == null || literal.isEmpty) return;
+  if (literal.contains('l10n.')) return;
+  if (literal.trim().length < 2) return;
+  if (!literal.contains(RegExp(r'[a-zA-Z]'))) return;
+  if (literal.contains(r'$')) return;
+  if (!seen.add(literal)) return;
+  texts.add(<String, dynamic>{'text': literal, 'line': lineNumber});
+}
+
 int _replaceTextLiterals({
   required Directory libDir,
   required RegExp textLiteralPattern,
@@ -220,25 +248,36 @@ int _replaceTextLiterals({
     }
 
     final String original = entity.readAsStringSync();
-    final String replaced = original.replaceAllMapped(textLiteralPattern, (
-      Match match,
-    ) {
+    // Replace only in comment-free positions by building an offset-aware map.
+    final String sanitized = stripDartComments(original);
+    final StringBuffer replaced = StringBuffer();
+    int cursor = 0;
+    for (final RegExpMatch match in textLiteralPattern.allMatches(sanitized)) {
       final String? text = match.group(2);
-      if (text == null || text.contains('l10n.')) {
-        return match.group(0) ?? '';
+      if (text == null ||
+          text.contains('l10n.') ||
+          text.trim().length < 2 ||
+          !text.contains(RegExp(r'[a-zA-Z]')) ||
+          text.contains(r'$')) {
+        continue;
       }
       final String? key = _toCamelCase(text);
-      if (key == null) {
-        return match.group(0) ?? '';
-      }
-      return 'Text(context.l10n.$key)';
-    });
+      if (key == null) continue;
+      replaced.write(original.substring(cursor, match.start));
+      replaced.write('Text(context.l10n.$key)');
+      cursor = match.end;
+      // Consume any trailing `)` from the original Text() call.
+      final int closeIdx = original.indexOf(')', cursor);
+      if (closeIdx != -1) cursor = closeIdx + 1;
+    }
+    replaced.write(original.substring(cursor));
+    final String replacedStr = replaced.toString();
 
-    if (replaced == original) {
+    if (replacedStr == original) {
       continue;
     }
 
-    entity.writeAsStringSync(replaced);
+    entity.writeAsStringSync(replacedStr);
     changedFiles++;
   }
 

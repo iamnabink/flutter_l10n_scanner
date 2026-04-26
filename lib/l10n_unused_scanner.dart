@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:yaml/yaml.dart';
+import 'src/dart_comment_sanitizer.dart';
 
 /// Finds localization keys used in Dart source content.
 ///
@@ -226,7 +227,7 @@ _UnusedScanResult _scanUnusedKeys({
         continue;
       }
 
-      final String content = entity.readAsStringSync();
+      final String content = stripDartComments(entity.readAsStringSync());
       if (useEasyLocalization) {
         usedKeys.addAll(_findEasyLocalizationUsedKeys(content, allKeys));
       } else {
