@@ -23,14 +23,25 @@ bool runHardcodedTextScanner({
 }) {
   _coolLog('🔍 Starting hardcoded text scan in `$libDirPath`...');
 
-  // Matches Text("...") or Text('...') with any trailing arguments.
+  // Matches Text("...") or Text('...') with optional `const` and trailing args.
   final RegExp textLiteralPattern = RegExp(
-    r'''(?<!\w)Text\(\s*(["'])(.+?)\1''',
+    r'''(?<!\w)Text\(\s*(?:const\s+)?(["'])(.+?)\1''',
+    multiLine: true,
+    dotAll: true,
   );
 
   // Matches common named string parameters that typically render visible text.
   final RegExp namedParamPattern = RegExp(
     r'''(?:hintText|labelText|title|label|hint|tooltip|semanticsLabel|message|helperText|counterText|prefixText|suffixText|errorText|placeholderText)\s*:\s*(["'])(.+?)\1''',
+    multiLine: true,
+    dotAll: true,
+  );
+
+  // Safer replacement regex: only replace exact `Text("...")` / `Text('...')`.
+  final RegExp textLiteralReplacePattern = RegExp(
+    r'''Text\(\s*(["'])(.+?)\1\s*\)''',
+    multiLine: true,
+    dotAll: true,
   );
 
   final Directory libDir = Directory(libDirPath);
@@ -50,25 +61,15 @@ bool runHardcodedTextScanner({
     }
 
     final String sanitizedContent = stripDartComments(entity.readAsStringSync());
-    final List<String> lines = sanitizedContent.split('\n');
     final List<Map<String, dynamic>> texts = <Map<String, dynamic>>[];
     final Set<String> seenTexts = <String>{};
-
-    for (int i = 0; i < lines.length; i++) {
-      final String line = lines[i];
-
-      // Skip lines that reference l10n-translated values entirely.
-      if (line.contains('context.l10n.') || line.contains('.l10n.')) {
-        continue;
-      }
-
-      for (final RegExpMatch m in textLiteralPattern.allMatches(line)) {
-        _collectLiteral(m.group(2), i + 1, seenTexts, texts);
-      }
-
-      for (final RegExpMatch m in namedParamPattern.allMatches(line)) {
-        _collectLiteral(m.group(2), i + 1, seenTexts, texts);
-      }
+    for (final RegExpMatch match in textLiteralPattern.allMatches(sanitizedContent)) {
+      final int lineNumber = _lineNumberAtOffset(sanitizedContent, match.start);
+      _collectLiteral(match.group(2), lineNumber, seenTexts, texts);
+    }
+    for (final RegExpMatch match in namedParamPattern.allMatches(sanitizedContent)) {
+      final int lineNumber = _lineNumberAtOffset(sanitizedContent, match.start);
+      _collectLiteral(match.group(2), lineNumber, seenTexts, texts);
     }
 
     if (texts.isNotEmpty) {
@@ -102,7 +103,7 @@ bool runHardcodedTextScanner({
     );
     final int changedFiles = _replaceTextLiterals(
       libDir: libDir,
-      textLiteralPattern: textLiteralPattern,
+      textLiteralPattern: textLiteralReplacePattern,
       ignoreFilePatterns: ignoreFilePatterns,
     );
     _coolLog('🛠️ Replaced literals in $changedFiles Dart files.');
@@ -266,9 +267,6 @@ int _replaceTextLiterals({
       replaced.write(original.substring(cursor, match.start));
       replaced.write('Text(context.l10n.$key)');
       cursor = match.end;
-      // Consume any trailing `)` from the original Text() call.
-      final int closeIdx = original.indexOf(')', cursor);
-      if (closeIdx != -1) cursor = closeIdx + 1;
     }
     replaced.write(original.substring(cursor));
     final String replacedStr = replaced.toString();
@@ -282,6 +280,16 @@ int _replaceTextLiterals({
   }
 
   return changedFiles;
+}
+
+int _lineNumberAtOffset(String content, int offset) {
+  int line = 1;
+  for (int i = 0; i < offset && i < content.length; i++) {
+    if (content.codeUnitAt(i) == 10) {
+      line++;
+    }
+  }
+  return line;
 }
 
 String? _toCamelCase(String text) {
