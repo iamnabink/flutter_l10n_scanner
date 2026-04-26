@@ -1,0 +1,18 @@
+name: l10n_scanner
+description: JSON-first localization scanner for hardcoded texts and unused keys.
+version: 0.1.0
+homepage: https://github.com/iamnabink/flutter_l10n_scanner
+repository: https://github.com/iamnabink/flutter_l10n_scanner
+issue_tracker: https://github.com/iamnabink/flutter_l10n_scanner/issues
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  yaml: ^3.1.3
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+executables:
+  l10n_scanner: l10n_scanner
